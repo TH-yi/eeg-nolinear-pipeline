@@ -1,0 +1,9 @@
+numpy
+scipy
+mne
+antropy
+nolds
+matplotlib
+typer
+scikit‑learn
+mat73
