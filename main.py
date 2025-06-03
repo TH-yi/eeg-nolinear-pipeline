@@ -199,27 +199,7 @@ def _process_subject(
     except NotImplementedError:
         mat_dict = mat73.loadmat(mat_path)
 
-    # Decide strategy using the *first* key we can find in task_map
-    first_trial_key = None
-    for keys in task_map.values():
-        if keys:
-            first_trial_key = keys[0]
-            break
-    if first_trial_key is None or first_trial_key not in mat_dict:
-        raise RuntimeError("Cannot determine sample size for strategy decision")
-
-    sample_size = mat_dict[first_trial_key].size
-    tentative_workers = safe_worker_count(sample_size, os.cpu_count(), 0.002)
-    use_cache = tentative_workers < (os.cpu_count() - 2)
-
-    logger.info(
-        "%s – Strategy: %s (max_workers=%d, cpu=%d)",
-        subj,
-        "CACHE" if use_cache else "MEM",
-        tentative_workers,
-        os.cpu_count(),
-    )
-
+    cpu_cnt = os.cpu_count() or 1
     # Prepare cache dir (always create – might stay empty)
     cache_dir = output_dir / "__sig_cache"
     cache_dir = output_dir / f"__sig_cache_{subj}_{uuid4().hex[:8]}"
@@ -231,8 +211,8 @@ def _process_subject(
     def _prep_signal_to_cache(task: str, trial_key: str) -> Path | None:
         """Pre‑process signal then save to ``.npy``."""
         if trial_key not in mat_dict:
-            logger.warning("%s – %s: missing %s", subj, task, trial_key)
-            return None
+            logger.error("%s – %s: missing %s", subj, task, trial_key)
+            raise
         sig = mat_dict.pop(trial_key)  # frees RAM
         sig = reorder_channels(sig)
         sig = cz_interpolation(sig)
@@ -253,6 +233,7 @@ def _process_subject(
         task: str,
         trial_key: str,
         sig_source,
+        use_cache: bool,
         max_workers: int,
     ) -> np.ndarray | None:
         """Compute mean feature vector for *trial_key*."""
@@ -324,27 +305,37 @@ def _process_subject(
     # ------------------------------------------------------------------
     def _process_task(task: str, keys: List[str]) -> List[np.ndarray]:
         """Return list of mean feature vectors, one per trial."""
-
-        trial_sources = {}
-        # Prepare signals according to chosen strategy
+        trial_sources: {}
         for k in keys:
-            if use_cache:
-                p = _prep_signal_to_cache(task, k)
-                if p is not None:
-                    trial_sources[k] = p
-            else:
-                if k not in mat_dict:
-                    logger.warning("%s – %s: missing %s", subj, task, k)
-                    continue
-                trial_sources[k] = _load_signal_mem(task, k)
+            if k not in mat_dict:  # 仍未被 pop
+                logger.warning("%s – %s: missing %s", subj, task, k)
+                continue
 
-        # Use the tentative_workers already computed earlier
-        max_workers = tentative_workers
+            sample_size = mat_dict[k].size
+            tentative_workers = safe_worker_count(sample_size, cpu_cnt, 0.002)
+            use_cache = tentative_workers < (cpu_cnt - 2)
 
+            logger.info(
+                "%s – %s – %s → %s (max_workers=%d)",
+                subj,
+                task,
+                k,
+                "CACHE" if use_cache else "MEM",
+                tentative_workers,
+            )
+
+            src = (
+                _prep_signal_to_cache(task, k) if use_cache else _load_signal_mem(task, k)
+            )
+            if src is not None:
+                trial_sources[k] = (src, use_cache, tentative_workers)
+
+        # —— 执行每个 trial ——
         trial_vecs: List[np.ndarray] = []
         for k in keys:
             if k in trial_sources:
-                vec = _process_one_trial(task, k, trial_sources[k], max_workers)
+                src, use_cache, max_workers = trial_sources[k]
+                vec = _process_one_trial(task, k, src, use_cache, max_workers)
                 if vec is not None:
                     trial_vecs.append(vec)
         return trial_vecs
