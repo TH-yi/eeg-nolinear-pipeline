@@ -138,7 +138,7 @@ def analyze_segment(
         failure.
     """
     try:
-        desc = f"{subj}-{task} Segment {int(seg_id)+1} Process"
+        desc = f"{subj}-{task}-{trial} Segment {int(seg_id)+1} Process"
         with tqdm(
             total=total,
             desc=desc,
@@ -239,7 +239,7 @@ def _process_subject(
         """Compute mean feature vector for *trial_key*."""
 
         if sig_source is None:
-            return None
+            raise("sig_source is None!")
 
         # Load signal lazily depending on strategy
         if use_cache:
@@ -262,7 +262,7 @@ def _process_subject(
         feature_vectors: List[np.ndarray] = []
         with tqdm(
             total=total_segments,
-            desc=f"{subj}-{task} Segments",
+            desc=f"{subj}-{task}-{trial_key} Segments",
             position=0,
             leave=True,
             dynamic_ncols=True,
@@ -291,7 +291,7 @@ def _process_subject(
                 if ok:
                     feature_vectors.append(payload)
                 else:
-                    tqdm.write(f"{subj}–{task} failed: {payload}")
+                    tqdm.write(f"{subj}–{task}-{trial_key} failed: {payload}")
                 bar.update()
 
         if feature_vectors:

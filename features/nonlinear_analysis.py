@@ -110,7 +110,7 @@ def _rqa_features(x: np.ndarray, m: int, tau: int):
     settings = Settings(
         ts,
         analysis_type=Classic,
-        neighbourhood=FixedRadius(0.1),   # 等价 MATLAB RPplot_FAN(...,10,0)
+        neighbourhood=FixedRadius(0.1),   # equal to MATLAB RPplot_FAN(...,10,0)
         similarity_measure=EuclideanMetric(),
     )
     result = RQAComputation.create(settings).run()
@@ -135,36 +135,35 @@ def _features_per_channel(
     plot_dir: Path,
     ch_label: str,
 ) -> list[float]:
-    """Worker 进程执行的函数，必须定义在模块最外层以便 pickle."""
     # ── 1. Correlation Dimension ────────────────────────────────────
     try:
         f1 = nolds.corr_dim(x, emb_dim)
     except Exception as exc:
         warnings.warn(f"corr_dim failed on {ch_label}: {exc}")
-        f1 = float("nan")
+        raise
 
     # ── 2. Higuchi Fractal Dimension ────────────────────────────────
     try:
         f2 = ant.higuchi_fd(x)
     except Exception as exc:
         warnings.warn(f"higuchi_fd failed on {ch_label}: {exc}")
-        f2 = float("nan")
+        raise
 
     # ── 3. Largest Lyapunov Exponent ────────────────────────────────
     try:
         f3 = nolds.lyap_r(x, emb_dim=emb_dim, lag=tau)
     except Exception as exc:
         warnings.warn(f"lyap_r failed on {ch_label}: {exc}")
-        f3 = float("nan")
+        raise
 
     # ── 4. Wavelet Shannon Entropy ──────────────────────────────────
-    f4 = _wavelet_entropy(x)
-
-    # ── 5. Kurtosis (Fisher flag off to match MATLAB) ───────────────
-    f5 = kurtosis(x, fisher=False, bias=False)
-
-    # ── 6. Mean signal power ────────────────────────────────────────
-    f6 = _power_signal(x)
+    # f4 = _wavelet_entropy(x)
+    #
+    # # ── 5. Kurtosis (Fisher flag off to match MATLAB) ───────────────
+    # f5 = kurtosis(x, fisher=False, bias=False)
+    #
+    # # ── 6. Mean signal power ────────────────────────────────────────
+    # f6 = _power_signal(x)
 
     # 7 ─ Sample Entropy (r = 0.2·σ) ────────────────────────────────
     f7 = sample_entropy(x, m=emb_dim, tau=tau)
@@ -173,23 +172,26 @@ def _features_per_channel(
     f8 = permutation_entropy(x, m=emb_dim, tau=tau, normalize=True)
 
     # ── 9-13. Band powers δ, θ, α, β, γ ─────────────────────────────
-    f9  = _bandpower(x, fs, 0.1, 4)
-    f10 = _bandpower(x, fs, 4, 8)
-    f11 = _bandpower(x, fs, 8, 13)
-    f12 = _bandpower(x, fs, 13, 30)
-    f13 = _bandpower(x, fs, 30, 100)
+    # f9 = _bandpower(x, fs, 0.1, 4)
+    # f10 = _bandpower(x, fs, 4, 8)
+    # f11 = _bandpower(x, fs, 8, 13)
+    # f12 = _bandpower(x, fs, 13, 30)
+    # f13 = _bandpower(x, fs, 30, 100)
 
     # ── 14-17. Recurrence Quantification Analysis ──────────────────
-    f14, f15, f16, f17 = _rqa_features(x, emb_dim, tau)
+    # f14, f15, f16, f17 = _rqa_features(x, emb_dim, tau)
 
     # ── Optional plots ─────────────────────────────────────────────
     if save_plots:
         generate_channel_plots(x, fs, tau, emb_dim, plot_dir, ch_label)
 
+    # return [
+    #     f1, f2, f3, f4, f5, f6,
+    #     f7, f8, f9, f10, f11, f12, f13,
+    #     f14, f15, f16, f17,
+    # ]
     return [
-        f1, f2, f3, f4, f5, f6,
-        f7, f8, f9, f10, f11, f12, f13,
-        f14, f15, f16, f17,
+        f1, f2, f3, f7, f8
     ]
 
 
@@ -280,5 +282,5 @@ def nonlinear_analysis(
 
     # ─── Return result ──────────────────────────────────────────────
     feat_arr = np.asarray(feat_rows, dtype=float)
-    return feat_arr.reshape(1, -1) if flatten else feat_arr
+    return feat_arr.ravel() if flatten else feat_arr
 
