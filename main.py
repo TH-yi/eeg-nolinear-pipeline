@@ -155,7 +155,7 @@ def analyze_segment(
                 flatten=True,
                 tqdm_progress=bar,
                 max_workers=max_workers,
-                use_cache=False,
+                use_cache=use_cache,
                 cache_dir=cache_dir
             )
         return True, features
@@ -305,7 +305,7 @@ def _process_subject(
     # ------------------------------------------------------------------
     def _process_task(task: str, keys: List[str]) -> List[np.ndarray]:
         """Return list of mean feature vectors, one per trial."""
-        trial_sources: {}
+        trial_sources: dict[str, tuple[Path | np.ndarray, bool, int]] = {}
         for k in keys:
             if k not in mat_dict:  # 仍未被 pop
                 logger.warning("%s – %s: missing %s", subj, task, k)
@@ -319,7 +319,6 @@ def _process_subject(
                 "%s – %s – %s → %s (max_workers=%d)",
                 subj,
                 task,
-                k,
                 "CACHE" if use_cache else "MEM",
                 tentative_workers,
             )
@@ -365,8 +364,7 @@ def _process_subject(
     # ------------------------------------------------------------------
     # 5. Cleanup
     # ------------------------------------------------------------------
-    if use_cache:
-        shutil.rmtree(cache_dir, ignore_errors=True)
+    shutil.rmtree(cache_dir, ignore_errors=True)
     logger.debug("Finish processing %s", subj)
     return subj
 
