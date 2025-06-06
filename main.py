@@ -12,8 +12,7 @@ from __future__ import annotations
 from pathlib import Path
 import tempfile, uuid, os, json
 from itertools import count
-import concurrent.futures as cf
-from concurrent.futures import ProcessPoolExecutor, as_completed  # NEW
+from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor, as_completed, Future
 import multiprocessing as mp
 import logging
 from typing import List, Dict
@@ -27,7 +26,7 @@ from tqdm import tqdm
 # ── project modules ───────────────────────────────────────────────────────
 from config import FS, INPUT_DIR, OUTPUT_DIR, TASK_MAP
 from logger import get_logger
-from utils.memory import safe_worker_count  # NEW  – memory-aware worker limiter
+from utils.memory import safe_worker_count, memory_limited_worker_count, compute_max_threads
 from utils.fileio import load_subject_mat  # wrapper around scipy.loadmat / mat73
 from preprocessing.channel_correction import (
     cz_interpolation,
@@ -101,9 +100,12 @@ def analyze_segment(
     seg_id: int,
     position: int,
     total: int,
+    max_threads_per_channel: int,
     max_workers: int,
     use_cache: bool = False,
-    cache_dir=None
+    cache_dir=None,
+    on_almost_done: callable | None = None,
+    channel_threshold: int = 1,
 ):
     """Extract nonlinear features for a single segment.
 
@@ -154,9 +156,12 @@ def analyze_segment(
                 save_plots=False,
                 flatten=True,
                 tqdm_progress=bar,
+                max_threads_per_channel=max_threads_per_channel,
                 max_workers=max_workers,
                 use_cache=use_cache,
-                cache_dir=cache_dir
+                cache_dir=cache_dir,
+                on_almost_done_channels=on_almost_done,
+                channel_threshold=channel_threshold,
             )
         return True, features
     except Exception as exc:  # pragma: no cover ‑‑ diagnostic path
@@ -212,7 +217,7 @@ def _process_subject(
         """Pre‑process signal then save to ``.npy``."""
         if trial_key not in mat_dict:
             logger.error("%s – %s: missing %s", subj, task, trial_key)
-            raise
+            raise KeyError(trial_key)
         sig = mat_dict.pop(trial_key)  # frees RAM
         sig = reorder_channels(sig)
         sig = cz_interpolation(sig)
@@ -230,22 +235,50 @@ def _process_subject(
 
     # Strategy‑agnostic trial processor
     def _process_one_trial(
-        task: str,
-        trial_key: str,
-        sig_source,
-        use_cache: bool,
-        max_workers: int,
+            task: str,
+            trial_key: str,
+            sig_source,
+            use_cache: bool,
+            max_threads_per_channel: int,
+            max_workers: int,
+            *,
+            # ───────────── new optional arguments ──────────────────────────
+            preload_next_trial_cb: callable | None = None,
+            channel_threshold: int = 1,
     ) -> np.ndarray | None:
-        """Compute mean feature vector for *trial_key*."""
+        """
+        Compute the *mean* 17-dim feature vector for a single *trial*.
 
+        Parameters
+        ----------
+        task, trial_key : str
+            Identifiers used purely for logging / progress bars.
+        sig_source :
+            Either an in-memory ndarray (channels × samples) **or** a disk-cached
+            ``.npy`` path if *use_cache* is True.
+        use_cache : bool
+            ``True`` → *sig_source* is a path and the signal is mem-mapped.
+        max_threads_per_channel :
+            Upper bound passed down to `_features_per_channel` (thread fan-out).
+        max_workers :
+            Process-level fan-out inside `nonlinear_analysis` (per segment).
+        preload_next_trial_cb : callable | None, optional
+            Callback that *starts loading the next trial*.  It will be handed down
+            to `nonlinear_analysis()` **for the last segment only** and will fire
+            once that segment has *few enough* workers left alive.
+        channel_threshold : int, optional
+            “Few enough” is defined as `remaining_workers ≤ channel_threshold`
+            inside `nonlinear_analysis`.
+        """
         if sig_source is None:
-            raise("sig_source is None!")
+            raise ValueError("sig_source is None!")
 
-        # Load signal lazily depending on strategy
-        if use_cache:
-            sig_mm = np.load(sig_source, mmap_mode="r")  # type: ignore[arg-type]
-        else:
-            sig_mm = sig_source  # already an ndarray
+        # 1) Load or mem-map the raw EEG signal ----------------------------------
+        sig_mm = (
+            np.load(sig_source, mmap_mode="r")  # disk-cached (lazy)
+            if use_cache else
+            sig_source  # already ndarray
+        )
 
         win_len, overlap = _choose_window(sig_mm.shape[1])
         step = win_len - overlap
@@ -257,23 +290,41 @@ def _process_subject(
             total_segments = len(segments)
             if total_segments == 0:
                 logger.warning("%s – %s – %s: no segments", subj, task, trial_key)
-                return None
+                raise ValueError("Total segments == 0!")
 
-        feature_vectors: List[np.ndarray] = []
+        feature_vectors: list[np.ndarray] = []
+
         with tqdm(
-            total=total_segments,
-            desc=f"{subj}-{task}-{trial_key} Segments",
-            position=0,
-            leave=True,
-            dynamic_ncols=True,
+                total=total_segments,
+                desc=f"{subj}-{task}-{trial_key} Segments",
+                position=0,
+                leave=True,
+                dynamic_ncols=True,
         ) as bar:
+
             for seg_idx in range(total_segments):
+
+                # -----------------------------------------------------------------
+                # 2) Extract current segment
+                # -----------------------------------------------------------------
                 if use_cache:
                     start = seg_idx * step
                     end = start + win_len
                     seg = sig_mm[:, start:end]
                 else:
                     seg = segments[seg_idx]
+
+                # -----------------------------------------------------------------
+                # 3) Decide ONCE whether to attach the “almost-done” callback
+                #    • Only the *last* segment carries the callback.
+                #    • Earlier segments pass None → will never trigger preload.
+                # -----------------------------------------------------------------
+                if seg_idx == total_segments - 1:  # ⇐ last segment
+                    cb = preload_next_trial_cb
+                    chan_thresh = channel_threshold
+                else:
+                    cb = None
+                    chan_thresh = 1  # unused
 
                 ok, payload = analyze_segment(
                     seg,
@@ -282,18 +333,25 @@ def _process_subject(
                     task,
                     trial_key,
                     seg_idx,
-                    1,
-                    seg.shape[0],
+                    1,  # tqdm position for inner bar
+                    seg.shape[0],  # total rows (channels)
+                    max_threads_per_channel,
                     max_workers,
                     use_cache=use_cache,
-                    cache_dir=cache_dir
+                    cache_dir=cache_dir,
+                    # -------------- propagate callback & threshold --------------
+                    on_almost_done=cb,
+                    channel_threshold=chan_thresh,
                 )
+
                 if ok:
                     feature_vectors.append(payload)
                 else:
                     tqdm.write(f"{subj}–{task}-{trial_key} failed: {payload}")
+
                 bar.update()
 
+        # 4) Aggregate results ----------------------------------------------------
         if feature_vectors:
             return np.mean(feature_vectors, axis=0)
 
@@ -304,39 +362,112 @@ def _process_subject(
     # 2. Task‑level loop (sequential)
     # ------------------------------------------------------------------
     def _process_task(task: str, keys: List[str]) -> List[np.ndarray]:
-        """Return list of mean feature vectors, one per trial."""
-        trial_sources: dict[str, tuple[Path | np.ndarray, bool, int]] = {}
-        for k in keys:
-            if k not in mat_dict:  # 仍未被 pop
-                logger.warning("%s – %s: missing %s", subj, task, k)
-                continue
+        """
+        Compute a mean-feature vector for every *trial* listed in *keys*.
+
+        Streaming strategy
+        ------------------
+        • Only **one** upcoming trial is ever kept in memory ahead of the trial
+          currently being analysed.
+        • Pre-loading of the next trial starts *late*: it is triggered only when
+          the running trial enters its last ≤ ``max_workers`` segments.  By that
+          time the segment-level ProcessPool is practically idle, avoiding memory
+          spikes.
+        • If pre-loading is not finished when the current trial completes, the
+          main thread blocks until the load is done, guaranteeing strict order.
+        """
+
+        trial_vecs: list[np.ndarray] = []
+
+        # ------------------------------------------------------------------ #
+        # 0. Helper – load one trial (runs inside a background thread)       #
+        # ------------------------------------------------------------------ #
+        def _load_trial(k: str):
+            """Load / pre-process *k* and decide MEM vs CACHE strategy."""
+            #logger.debug("%s – %s: 🔄 START loading %s", subj, task, k)
+            if k not in mat_dict:
+                logger.error("%s – %s: missing %s", subj, task, k)
+                raise ValueError(f"{subj} – {task}: missing {k}")
 
             sample_size = mat_dict[k].size
             tentative_workers = safe_worker_count(sample_size, cpu_cnt, 0.002)
-            use_cache = tentative_workers < (cpu_cnt - 2)
+            use_cache = tentative_workers < (cpu_cnt - 2)  # fall-back to disk
+            mem_workers = memory_limited_worker_count(sample_size, 0.002)
+
+            max_threads_per_ch, tentative_workers = compute_max_threads(
+                mem_workers, tentative_workers, 3
+            )
 
             logger.info(
-                "%s – %s – %s → %s (max_workers=%d)",
-                subj,
-                task,
+                "%s – %s – %s → %s (max_threads_per_channel=%d, max_workers=%d)",
+                subj, task, k,
                 "CACHE" if use_cache else "MEM",
-                tentative_workers,
+                max_threads_per_ch, tentative_workers,
             )
 
+            # Return either an in-memory ndarray or a .npy path (cache)
             src = (
-                _prep_signal_to_cache(task, k) if use_cache else _load_signal_mem(task, k)
+                _prep_signal_to_cache(task, k) if use_cache
+                else _load_signal_mem(task, k)
             )
-            if src is not None:
-                trial_sources[k] = (src, use_cache, tentative_workers)
+            #logger.debug("%s – %s: ✅ FINISHED loading %s", subj, task, k)
+            return (k, src, use_cache, max_threads_per_ch, tentative_workers)
 
-        # —— 执行每个 trial ——
-        trial_vecs: List[np.ndarray] = []
-        for k in keys:
-            if k in trial_sources:
-                src, use_cache, max_workers = trial_sources[k]
-                vec = _process_one_trial(task, k, src, use_cache, max_workers)
-                if vec is not None:
-                    trial_vecs.append(vec)
+        # ------------------------------------------------------------------ #
+        # 1. Streaming loop                                                  #
+        # ------------------------------------------------------------------ #
+        key_iter = iter(keys)
+        loader = ThreadPoolExecutor(max_workers=1)  # single BG loader
+        preload_fut: Future | None = None  # future of next trial
+
+        # ---- (a) synchronously prepare the very first trial ---------------
+        try:
+            first_key = next(key_iter)
+        except StopIteration:
+            return trial_vecs  # nothing to process
+
+        k, src, use_cache, max_thr, max_wkr = _load_trial(first_key)
+
+        while True:
+            # -------------------------------------------------------------- #
+            # Callback to kick off *one* pre-load when almost done           #
+            # -------------------------------------------------------------- #
+            def _kickoff_preload():
+                nonlocal preload_fut
+                if preload_fut is None:  # ensure single call
+                    try:
+                        nxt = next(key_iter)  # may raise StopIteration
+                        logger.debug("%s – %s: 🚚 Pre-loading next trial %s", subj, task, nxt)
+                        preload_fut = loader.submit(_load_trial, nxt)
+                    except StopIteration:
+                        logger.debug("%s – %s: 🛑 No further trials", subj, task)
+                        pass  # no more trials
+
+            # ---- (b) run the current trial; callback fires late ----------
+            vec = _process_one_trial(
+                task, k, src, use_cache,
+                max_threads_per_channel=max_thr,
+                max_workers=max_wkr,
+                preload_next_trial_cb=_kickoff_preload,
+                channel_threshold=max(1, max_wkr - 1),
+            )
+            if vec is not None:
+                trial_vecs.append(vec)
+            else:
+                raise RuntimeError(f"{subj} – {task} – {k}: returned None")
+
+            # ---- (c) if a pre-load is in progress, wait for it -----------
+            if preload_fut is not None:
+                logger.debug("%s – %s: ⏳ Waiting for pre-load to finish", subj, task)
+                k, src, use_cache, max_thr, max_wkr = preload_fut.result()
+                logger.debug("%s – %s: 📦 Pre-load ready → %s", subj, task, k)
+                preload_fut = None  # loop continues
+                continue  # begin next trial
+
+            # ---- (d) no further trials scheduled → exit loop ------------
+            break
+
+        loader.shutdown(wait=True)
         return trial_vecs
 
     # ------------------------------------------------------------------
