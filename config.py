@@ -18,3 +18,15 @@ LOGGER_DIR = STORAGE_DIR / "logs"
 
 FS = 500
 CHANNELS = 64
+TAU = 10  # for f7 and f8 tau parameter
+LAG = 1  # for f1 and f3 lag(tau) parameter
+EMB_DIM = 2
+
+# Default number of parallel tasks per feature channel
+PARALLEL_TASK_COUNT = 3
+
+# Memory limit threshold (adjust based on empirical observations)
+MAX_WORKER_MEMORY_LIMIT = 0.002  # Minimum memory required per worker (unit depends on implementation)
+
+# CPU utilization ratio (used in functions like safe_worker_count)
+CPU_UTILIZATION_RATIO = 0.002  # Used to estimate safe_worker_count

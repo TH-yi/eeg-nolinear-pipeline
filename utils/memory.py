@@ -59,7 +59,7 @@ def memory_limited_worker_count(
     # print(f"[Memory-limited] Available: {avail} bytes, Budget: {budget} bytes, Max workers: {max_workers}")
     return max_workers
 
-def compute_max_threads(memory_limited_workers: int, max_workers: int, task_count: int = 5) -> tuple[int, int]:
+def compute_max_threads(memory_limited_workers: int, max_workers: int, parallel_task_count: int = 5) -> tuple[int, int]:
     """
     Compute optimal number of threads per process and adjusted max_workers based on memory constraints.
 
@@ -74,10 +74,10 @@ def compute_max_threads(memory_limited_workers: int, max_workers: int, task_coun
 
     if max_workers >= cpu_count - 2:
         max_threads = max(1, int(1.5*memory_limited_workers) // max_workers)
-        max_threads = min(task_count, max_threads)
+        max_threads = min(parallel_task_count, max_threads)
         return max_threads, max_workers
     elif max_workers >= cpu_count / 2:
-        max_threads = min(task_count, memory_limited_workers)
+        max_threads = min(parallel_task_count, memory_limited_workers)
         adjusted_max_workers = min(max(1, memory_limited_workers // max_threads), max_workers)
         return max_threads, adjusted_max_workers
     else:

@@ -161,6 +161,7 @@ def _features_per_channel(
         *,
         fs: float,
         tau,
+        lag,
         emb_dim,
         save_plots: bool,
         plot_dir: Path,
@@ -195,7 +196,7 @@ def _features_per_channel(
     # ------------------------------------------------------------------
     def calc_f1():
         # Correlation Dimension
-        return nolds.corr_dim(x, emb_dim=2, lag=1, rvals=r_vals, fit="poly")
+        return nolds.corr_dim(x, emb_dim=2, lag=lag, rvals=r_vals, fit="poly")
 
     def calc_f2():
         # Higuchi Fractal Dimension
@@ -204,7 +205,7 @@ def _features_per_channel(
     def calc_f3():
         # Largest Lyapunov Exponent (scaled by fs)
         lle_per_step = nolds.lyap_r(
-            x, tau=1, emb_dim=2,
+            x, tau=lag, emb_dim=2,
             trajectory_len=5, fit="poly", min_tsep=tau
         )
         return lle_per_step * fs  # fs=500 → 1 / s
@@ -283,7 +284,8 @@ def nonlinear_analysis(
         signal2: np.ndarray,
         *,
         fs: float = 500.0,
-        tau: int = 1,
+        tau: int = 10,
+        lag: int = 1,
         emb_dim: int = None,
         save_plots: bool = True,
         plot_dir: str | Path = "plots",
@@ -346,7 +348,7 @@ def nonlinear_analysis(
                 exe.submit(
                     _features_per_channel,
                     load_channel(ch_idx),
-                    fs=fs, tau=tau, emb_dim=emb_dim,
+                    fs=fs, tau=tau, lag=lag, emb_dim=emb_dim,
                     save_plots=save_plots, plot_dir=plot_dir,
                     ch_label=channel_names[ch_idx],
                     max_threads_for_features_per_channel=max_threads_per_channel

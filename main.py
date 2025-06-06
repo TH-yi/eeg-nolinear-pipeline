@@ -24,7 +24,7 @@ import typer
 from tqdm import tqdm
 
 # ── project modules ───────────────────────────────────────────────────────
-from config import FS, INPUT_DIR, OUTPUT_DIR, TASK_MAP
+from config import *
 from logger import get_logger
 from utils.memory import safe_worker_count, memory_limited_worker_count, compute_max_threads
 from utils.fileio import load_subject_mat  # wrapper around scipy.loadmat / mat73
@@ -94,6 +94,9 @@ def _choose_window(n_samples: int) -> tuple[int, int]:
 def analyze_segment(
     seg: np.ndarray,
     fs: int,
+    tau: int,
+    lag: int,
+    emb_dim:int,
     subj: str,
     task: str,
     trial: str,
@@ -151,8 +154,9 @@ def analyze_segment(
             features = nonlinear_analysis(
                 seg,
                 fs=fs,
-                tau=10,
-                emb_dim=2,
+                tau=tau,
+                lag=lag,
+                emb_dim=emb_dim,
                 save_plots=False,
                 flatten=True,
                 tqdm_progress=bar,
@@ -175,6 +179,9 @@ def analyze_segment(
 def _process_subject(
     mat_path: Path,
     fs: int,
+    tau: int,
+    lag: int,
+    emb_dim:int,
     task_map: Dict[str, List[str]],
     output_dir: Path,
     save_mat: bool = True,
@@ -329,6 +336,9 @@ def _process_subject(
                 ok, payload = analyze_segment(
                     seg,
                     fs,
+                    tau,
+                    lag,
+                    emb_dim,
                     subj,
                     task,
                     trial_key,
@@ -390,12 +400,12 @@ def _process_subject(
                 raise ValueError(f"{subj} – {task}: missing {k}")
 
             sample_size = mat_dict[k].size
-            tentative_workers = safe_worker_count(sample_size, cpu_cnt, 0.002)
+            tentative_workers = safe_worker_count(sample_size, cpu_cnt, CPU_UTILIZATION_RATIO)
             use_cache = tentative_workers < (cpu_cnt - 2)  # fall-back to disk
-            mem_workers = memory_limited_worker_count(sample_size, 0.002)
+            mem_workers = memory_limited_worker_count(sample_size, MAX_WORKER_MEMORY_LIMIT)
 
             max_threads_per_ch, tentative_workers = compute_max_threads(
-                mem_workers, tentative_workers, 3
+                mem_workers, tentative_workers, PARALLEL_TASK_COUNT
             )
 
             logger.info(
@@ -503,11 +513,14 @@ def _process_subject(
 # -------------------------------------------------------------------------
 # 5. CLI – batch over all subjects
 # -------------------------------------------------------------------------
-@app.command(help="Extract 17-dim nonlinear features for all S*.mat files.")
+@app.command(help="Extract 5-dim nonlinear features for all S*.mat files.")
 def process(
         data_dir: Path = typer.Option(None, help="Input folder with S*.mat files"),
         output_dir: Path = typer.Option(None, help="Output folder for JSON / MAT"),
         fs: int = FS,
+        tau: int = TAU,
+        lag: int = LAG,
+        emb_dim:int = EMB_DIM,
         save_mat: bool = typer.Option(
             True, "--save-mat", help="Also save <subj>_NL_Results.mat files"
         ),
@@ -520,7 +533,7 @@ def process(
     logger.info(f"Found {len(sub_files)} subjects in {data_dir}")
 
     for f in sub_files:
-        _process_subject(f, fs, TASK_MAP, output_dir, save_mat)
+        _process_subject(f, fs, tau, lag, emb_dim, TASK_MAP, output_dir, save_mat)
 
     logger.info("✅ All subjects finished.")
 
