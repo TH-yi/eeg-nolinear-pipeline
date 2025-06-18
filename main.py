@@ -538,7 +538,7 @@ def process(
     logger.info("✅ All subjects finished.")
 
     # -------- merge subject JSONs to global JSON / MAT -------------------
-    merged: dict[str, list[list[float]]] = {k: [] for k in ["IDG", "IDE", "IDR", "RST1", "RST2"]}
+    merged: dict[str, list[list[float]]] = {k: [] for k in list(TASK_MAP.keys())}
 
     for sf in sorted(output_dir.glob("S*_features.json")):
         with sf.open("r", encoding="utf-8") as fh:
