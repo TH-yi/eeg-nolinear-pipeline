@@ -33,7 +33,8 @@ from preprocessing.channel_correction import (
     reorder_channels,
 )
 from preprocessing.segmentation import segment_signal
-from features.nonlinear_analysis import nonlinear_analysis  # 17-feature API
+from features.nonlinear_analysis import nonlinear_analysis
+from features.rqa_analysis import rqa_analysis
 
 # ──────────────────────────────────────────────────────────────────────────
 
@@ -109,6 +110,7 @@ def analyze_segment(
     cache_dir=None,
     on_almost_done: callable | None = None,
     channel_threshold: int = 1,
+    method: str = 'nonlinear'
 ):
     """Extract nonlinear features for a single segment.
 
@@ -151,22 +153,44 @@ def analyze_segment(
             leave=False,
             dynamic_ncols=True,
         ) as bar:
-            features = nonlinear_analysis(
-                seg,
-                fs=fs,
-                tau=tau,
-                lag=lag,
-                emb_dim=emb_dim,
-                save_plots=False,
-                flatten=True,
-                tqdm_progress=bar,
-                max_threads_per_channel=max_threads_per_channel,
-                max_workers=max_workers,
-                use_cache=use_cache,
-                cache_dir=cache_dir,
-                on_almost_done_channels=on_almost_done,
-                channel_threshold=channel_threshold,
-            )
+            if method == "rqa":
+                logger.info("Start rqa analysis")
+                features = rqa_analysis(
+                    seg,
+                    fs=fs,
+                    tau=tau,
+                    lag=lag,
+                    emb_dim=emb_dim,
+                    save_plots=False,
+                    flatten=True,
+                    tqdm_progress=bar,
+                    max_threads_per_channel=max_threads_per_channel,
+                    max_workers=max_workers,
+                    use_cache=use_cache,
+                    cache_dir=cache_dir,
+                    on_almost_done_channels=on_almost_done,
+                    channel_threshold=channel_threshold,
+                )
+            elif method == "nonlinear":
+                logger.info("Start nonlinear analysis")
+                features = nonlinear_analysis(
+                    seg,
+                    fs=fs,
+                    tau=tau,
+                    lag=lag,
+                    emb_dim=emb_dim,
+                    save_plots=False,
+                    flatten=True,
+                    tqdm_progress=bar,
+                    max_threads_per_channel=max_threads_per_channel,
+                    max_workers=max_workers,
+                    use_cache=use_cache,
+                    cache_dir=cache_dir,
+                    on_almost_done_channels=on_almost_done,
+                    channel_threshold=channel_threshold,
+                )
+            else:
+                raise ValueError(f"Unknown method: {method}")
         return True, features
     except Exception as exc:  # pragma: no cover ‑‑ diagnostic path
         return False, f"{type(exc).__name__}: {exc}"
@@ -185,6 +209,7 @@ def _process_subject(
     task_map: Dict[str, List[str]],
     output_dir: Path,
     save_mat: bool = True,
+    method: str = "nonlinear",
 ) -> str:
     """One *.mat* in → nonlinear features out (JSON + optional MAT).
 
@@ -513,17 +538,16 @@ def _process_subject(
 # -------------------------------------------------------------------------
 # 5. CLI – batch over all subjects
 # -------------------------------------------------------------------------
-@app.command(help="Extract 5-dim nonlinear features for all S*.mat files.")
+@app.command(help="Extract features for all S*.mat files using selected method.")
 def process(
         data_dir: Path = typer.Option(None, help="Input folder with S*.mat files"),
         output_dir: Path = typer.Option(None, help="Output folder for JSON / MAT"),
         fs: int = FS,
         tau: int = TAU,
         lag: int = LAG,
-        emb_dim:int = EMB_DIM,
-        save_mat: bool = typer.Option(
-            True, "--save-mat", help="Also save <subj>_NL_Results.mat files"
-        ),
+        emb_dim: int = EMB_DIM,
+        method: str = typer.Option("rqa", help="Feature extraction method: 'rqa' or 'nonlinear'"),
+        save_mat: bool = typer.Option(True, "--save-mat", help="Also save <subj>_NL_Results.mat files")
 ) -> None:
     data_dir = data_dir or INPUT_DIR
     output_dir = output_dir or OUTPUT_DIR
@@ -533,7 +557,7 @@ def process(
     logger.info(f"Found {len(sub_files)} subjects in {data_dir}")
 
     for f in sub_files:
-        _process_subject(f, fs, tau, lag, emb_dim, TASK_MAP, output_dir, save_mat)
+        _process_subject(f, fs, tau, lag, emb_dim, TASK_MAP, output_dir, save_mat, method=method)
 
     logger.info("✅ All subjects finished.")
 

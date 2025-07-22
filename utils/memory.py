@@ -1,9 +1,8 @@
 # ── utils.memory ──────────────────────────────────────────────────────────
 import os
-try:
-    import psutil
-except ImportError:
-    psutil = None
+import logging
+import time
+import psutil
 
 
 def safe_worker_count(
@@ -84,3 +83,40 @@ def compute_max_threads(memory_limited_workers: int, max_workers: int, parallel_
         max_threads = 2
         max_workers = min(max(1, int(memory_limited_workers // max_threads)), max_workers)
         return max_threads, max_workers
+
+
+def wait_for_available_memory(request_size_gb: float, safety_factor: float = 1.2,
+                              check_interval: float = 60, max_wait: float = 3600.0):
+    """
+    Wait until available RAM is sufficient to allocate a block of size request_size_gb.
+    - safety_factor: extra multiplier to prevent tight fit
+    - check_interval: seconds between checks
+    - max_wait: timeout in seconds (raise RuntimeError if exceeded)
+    """
+    required = request_size_gb * safety_factor * 1024 ** 3
+    waited = 0.0
+    while psutil.virtual_memory().available < required:
+        logging.warning(f"[MEMGUARD] Waiting for ≥{request_size_gb:.2f} GB free RAM "
+                        f"(currently: {psutil.virtual_memory().available / 1024**3:.2f} GB)")
+        time.sleep(check_interval)
+        waited += check_interval
+        if waited >= max_wait:
+            raise RuntimeError(f"Timeout waiting for {request_size_gb:.2f} GB free RAM.")
+
+
+def wait_for_available_gpu_memory(min_required_bytes, device_id=0, interval=60, max_wait=3600):
+    import time
+    import cupy as cp
+
+    waited = 0
+    while True:
+        free_bytes, total_bytes = cp.cuda.Device(device_id).mem_info
+        if free_bytes >= min_required_bytes:
+            return True
+        logging.warning(f"[DISPMEMGUARD] Waiting for ≥{min_required_bytes:.2f} GB free DISPRAM "
+                        f"(currently: {free_bytes / 1024 ** 3:.2f} GB)")
+        time.sleep(interval)
+        waited += interval
+        if waited >= max_wait:
+            raise RuntimeError(f"[GPU Worker] Timeout waiting for {min_required_bytes/1024**2:.2f} MB free GPU memory")
+
