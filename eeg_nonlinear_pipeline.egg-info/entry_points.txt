@@ -1,0 +1,2 @@
+[console_scripts]
+eeg-pipeline = main:app
