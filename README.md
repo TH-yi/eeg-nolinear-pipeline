@@ -4,8 +4,7 @@ This project provides a Python re-implementation of the MATLAB `Nonlinear_Analys
 
 ## 🔧 Key Features
 
-- **Full parity with MATLAB code** logic for 5 active nonlinear features.
-- **17 nonlinear features implemented**, but only f1, f2, f3, f7, and f8 are actively used.
+- **17 nonlinear features implemented**, now f1, f2, f3, f7, and f8 are actively used.
 - **Parallelization** using `ProcessPoolExecutor` + `ThreadPoolExecutor`.
 - **Automatic memory-aware fallback to disk cache** for large trials.
 - **Configurable via `config.py`** for CPU/memory limits and embedding parameters.
