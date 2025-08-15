@@ -24,7 +24,6 @@ utils/__init__.py
 utils/fileio.py
 utils/find_main_process.py
 utils/memory.py
-utils/remove_s1_rst.py
 utils/timer.py
 venv/Lib/site-packages/_virtualenv.py
 venv/Lib/site-packages/decorator.py

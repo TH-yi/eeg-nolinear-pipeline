@@ -1,9 +1,14 @@
 Metadata-Version: 2.4
 Name: eeg-nonlinear-pipeline
-Version: 0.1.0
-Summary: EEG nonlinear/RQA pipeline
-Author-email: Tianhao Ning <thning2018@foxmail.com>
+Version: 0.2.2
+Summary: EEG nonlinear/RQA feature extraction pipeline with CLI and GUI integration
+Author: Tianhao Ning
 License: MIT
+Project-URL: Homepage, https://github.com/TH-yi/eeg-nonlinear-pipeline
+Project-URL: Repository, https://github.com/TH-yi/eeg-nonlinear-pipeline.git
+Project-URL: Issues, https://github.com/TH-yi/eeg-nonlinear-pipeline/issues
+Project-URL: Changelog, https://github.com/TH-yi/eeg-nonlinear-pipeline/releases
+Keywords: EEG,pipeline,RQA,nonlinear,microstate
 Requires-Python: >=3.9
 Description-Content-Type: text/markdown
 
@@ -13,8 +18,7 @@ This project provides a Python re-implementation of the MATLAB `Nonlinear_Analys
 
 ## 🔧 Key Features
 
-- **Full parity with MATLAB code** logic for 5 active nonlinear features.
-- **17 nonlinear features implemented**, but only f1, f2, f3, f7, and f8 are actively used.
+- **17 nonlinear features implemented**, now f1, f2, f3, f7, and f8 are actively used.
 - **Parallelization** using `ProcessPoolExecutor` + `ThreadPoolExecutor`.
 - **Automatic memory-aware fallback to disk cache** for large trials.
 - **Configurable via `config.py`** for CPU/memory limits and embedding parameters.

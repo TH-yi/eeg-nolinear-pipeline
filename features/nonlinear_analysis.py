@@ -311,7 +311,7 @@ def nonlinear_analysis(
         # print(f"use cache -- cpu count: {os.cpu_count()}, max workers: {max_workers }")
         import uuid
         if cache_dir:
-            temp_dir = cache_dir / "__nolinear_cache" / f"nl_cache_{uuid.uuid4().hex}"
+            temp_dir = cache_dir / "__nonlinear_cache" / f"nl_cache_{uuid.uuid4().hex}"
         else:
             temp_dir = Path(tempfile.gettempdir()) / f"nl_cache_{uuid.uuid4().hex}"
         temp_dir.mkdir(parents=True, exist_ok=False)  # ensure uniqueness
