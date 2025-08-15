@@ -7,7 +7,7 @@ name = "eeg-nonlinear-pipeline"
 version = "0.2.2"
 description = "EEG nonlinear/RQA feature extraction pipeline with CLI and GUI integration"
 readme = "README.md"
-requires-python = ">=3.9"
+requires-python = "=3.10"
 license = { text = "MIT" }
 authors = [{ name = "Tianhao Ning" }]
 keywords = ["EEG", "pipeline", "RQA", "nonlinear", "microstate"]
