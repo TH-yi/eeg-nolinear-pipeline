@@ -110,7 +110,7 @@ def analyze_segment(
     cache_dir=None,
     on_almost_done: callable | None = None,
     channel_threshold: int = 1,
-    method: str = 'nonlinear'
+    method: str = None
 ):
     """Extract nonlinear features for a single segment.
 
@@ -209,7 +209,7 @@ def _process_subject(
     task_map: Dict[str, List[str]],
     output_dir: Path,
     save_mat: bool = True,
-    method: str = "nonlinear",
+    method: str = None,
 ) -> str:
     """One *.mat* in → nonlinear features out (JSON + optional MAT).
 
@@ -372,6 +372,7 @@ def _process_subject(
                     seg.shape[0],  # total rows (channels)
                     max_threads_per_channel,
                     max_workers,
+                    method=method,
                     use_cache=use_cache,
                     cache_dir=cache_dir,
                     # -------------- propagate callback & threshold --------------
@@ -540,15 +541,41 @@ def _process_subject(
 # -------------------------------------------------------------------------
 @app.command(help="Extract features for all S*.mat files using selected method.")
 def process(
-        data_dir: Path = typer.Option(None, help="Input folder with S*.mat files"),
-        output_dir: Path = typer.Option(None, help="Output folder for JSON / MAT"),
-        fs: int = FS,
-        tau: int = TAU,
-        lag: int = LAG,
-        emb_dim: int = EMB_DIM,
-        method: str = typer.Option("rqa", help="Feature extraction method: 'rqa' or 'nonlinear'"),
-        save_mat: bool = typer.Option(True, "--save-mat", help="Also save <subj>_NL_Results.mat files")
+        data_dir: Path = typer.Option(
+            None,
+            help="Input folder with S*.mat files (default: use INPUT_DIR from config.py if not provided)"
+        ),
+        output_dir: Path = typer.Option(
+            None,
+            help="Output folder for JSON / MAT (default: use OUTPUT_DIR from config.py if not provided)"
+        ),
+    fs: int = FS,
+    tau: int = TAU,
+    lag: int = LAG,
+    emb_dim: int = EMB_DIM,
+    method: str = typer.Option(
+        None,
+        "--method",
+        help="Feature extraction method (choose one): 'rqa' or 'nonlinear' ",
+    ),
+    save_mat: bool = typer.Option(True, "--save-mat", help="Also save <subj>_NL_Results.mat files"),
 ) -> None:
+    # ---- validate method ----
+    if not method:
+        logger.error("Missing --method. Choose one of: ['rqa', 'nonlinear']. "
+                     "Run: `eeg-pipeline process --help` for details.")
+        raise typer.Exit(code=2)
+
+    method_norm = method.strip().lower()
+
+
+    allowed = {"rqa", "nonlinear"}
+    if method_norm not in allowed:
+        logger.error(f"Invalid --method '{method}'. Allowed values: {sorted(allowed)}. "
+                     "Run: `eeg-pipeline process --help` for details.")
+        raise typer.Exit(code=2)
+
+    # ---- paths & discovery ----
     data_dir = data_dir or INPUT_DIR
     output_dir = output_dir or OUTPUT_DIR
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -556,8 +583,11 @@ def process(
     sub_files = sorted(data_dir.glob("S*.mat"))
     logger.info(f"Found {len(sub_files)} subjects in {data_dir}")
 
+    # ---- per-subject processing ----
     for f in sub_files:
-        _process_subject(f, fs, tau, lag, emb_dim, TASK_MAP, output_dir, save_mat, method=method)
+        _process_subject(
+            f, fs, tau, lag, emb_dim, TASK_MAP, output_dir, save_mat, method=method_norm
+        )
 
     logger.info("✅ All subjects finished.")
 
