@@ -41,7 +41,7 @@ app = typer.Typer()
 logger = get_logger("main")
 
 # Output tqdm_events json: Switch by env; you can always enable it unconditionally if you prefer.
-if os.getenv("EEG_TQDM_EVENTS") == "1":
+if os.getenv("EEG_TQDM_EVENTS", "1") == "1":
     # Global patch so all subsequent `from tqdm import tqdm` users get events.
     from utils.tqdm_events import TqdmEvents
     import tqdm as _tqdm_mod
@@ -234,7 +234,7 @@ def _process_subject(
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    logger.debug("Start processing %s", subj)
+    logger.info("Start processing %s", subj)
 
     # ------------------------------------------------------------------
     # 1. Load MAT (once)
