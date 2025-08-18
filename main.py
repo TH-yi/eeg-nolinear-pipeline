@@ -21,7 +21,6 @@ from typing import List, Dict
 import numpy as np
 import shutil
 import typer
-from tqdm import tqdm
 
 # ── project modules ───────────────────────────────────────────────────────
 from config import *
@@ -41,6 +40,15 @@ from features.rqa_analysis import rqa_analysis
 app = typer.Typer()
 logger = get_logger("main")
 
+# Output tqdm_events json: Switch by env; you can always enable it unconditionally if you prefer.
+if os.getenv("EEG_TQDM_EVENTS") == "1":
+    # Global patch so all subsequent `from tqdm import tqdm` users get events.
+    from utils.tqdm_events import TqdmEvents
+    import tqdm as _tqdm_mod
+    _tqdm_mod.tqdm = TqdmEvents
+    from tqdm import tqdm
+else:
+    from tqdm import tqdm
 
 # -------------------------------------------------------------------------
 # 1. MAT inspection helper (unchanged)
@@ -567,7 +575,6 @@ def process(
         raise typer.Exit(code=2)
 
     method_norm = method.strip().lower()
-
 
     allowed = {"rqa", "nonlinear"}
     if method_norm not in allowed:
