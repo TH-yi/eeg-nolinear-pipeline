@@ -162,7 +162,7 @@ def analyze_segment(
             dynamic_ncols=True,
         ) as bar:
             if method == "rqa":
-                logger.info("Start rqa analysis")
+                logger.info(f"Start rqa analysis: {subj}-{task}-{trial} Segment {int(seg_id)+1}")
                 features = rqa_analysis(
                     seg,
                     fs=fs,
@@ -180,7 +180,7 @@ def analyze_segment(
                     channel_threshold=channel_threshold,
                 )
             elif method == "nonlinear":
-                logger.info("Start nonlinear analysis")
+                logger.info(f"Start nonlinear analysis: {subj}-{task}-{trial} Segment {int(seg_id)+1}")
                 features = nonlinear_analysis(
                     seg,
                     fs=fs,
@@ -540,7 +540,7 @@ def _process_subject(
     # 5. Cleanup
     # ------------------------------------------------------------------
     shutil.rmtree(cache_dir, ignore_errors=True)
-    logger.debug("Finish processing %s", subj)
+    logger.info("Finish processing %s", subj)
     return subj
 
 
