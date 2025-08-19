@@ -201,6 +201,7 @@ def analyze_segment(
                 raise ValueError(f"Unknown method: {method}")
         return True, features
     except Exception as exc:  # pragma: no cover ‑‑ diagnostic path
+        logger.error(f"{type(exc).__name__}: {exc}")
         return False, f"{type(exc).__name__}: {exc}"
 
 
@@ -391,7 +392,7 @@ def _process_subject(
                 if ok:
                     feature_vectors.append(payload)
                 else:
-                    tqdm.write(f"{subj}–{task}-{trial_key} failed: {payload}")
+                    logger.error(f"{subj}–{task}-{trial_key} failed: {payload}")
 
                 bar.update()
 
