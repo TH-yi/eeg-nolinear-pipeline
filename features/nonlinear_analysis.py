@@ -332,7 +332,7 @@ def nonlinear_analysis(
             x = load_channel(ch_idx)
             res = _features_per_channel(
                 x,
-                fs=fs, tau=tau, emb_dim=emb_dim,
+                fs=fs, tau=tau, lag=lag, emb_dim=emb_dim,
                 save_plots=save_plots, plot_dir=plot_dir,
                 ch_label=channel_names[ch_idx],
             )
