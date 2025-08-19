@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "eeg-nonlinear-pipeline"
-version = "0.3.0"
+version = "0.3.1"
 description = "EEG nonlinear/RQA feature extraction pipeline with CLI and GUI integration"
 readme = "README.md"
 requires-python = ">=3.10,<3.13"
